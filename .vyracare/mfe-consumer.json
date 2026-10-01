@@ -1,0 +1,12 @@
+{
+  "consumerMfe": {
+    "repositoryFullName": "vyracare/vyracare-app-dashboard-mfe",
+    "environmentFiles": [
+      "src/environments/environments.ts",
+      "src/environments/environments.dev.ts",
+      "src/environments/environments.hml.ts",
+      "src/environments/environments.prod.ts"
+    ],
+    "apiUrlProperty": "financeApiUrl"
+  }
+}
