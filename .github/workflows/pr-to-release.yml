@@ -1,0 +1,59 @@
+name: PR TO RELEASE
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-dev:
+    uses: vyracare/vyracare-infra-pipes-dot-net/.github/workflows/cd-generic-dot-net.yml@main
+    with:
+      branch-name: ${{ github.ref_name }}
+      backend-repo: ${{ github.repository }}
+      project-path: Vyracare.Api.Finance.csproj
+      output-dir: backend-publish
+      api-gateway-name: vyracare-api-finance
+      lambda-function-name: vyracare-api-finance
+      lambda-handler: Vyracare.Api.Finance
+      route-base-path: api/finance
+    secrets: inherit
+  create-release-branch:
+    runs-on: ubuntu-latest
+    needs: publish-dev
+    outputs:
+      branch: ${{ steps.release.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+      - id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="release/v$(date -u +%Y.%m.%d).${GITHUB_RUN_NUMBER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
+          git checkout -B "$branch" origin/main
+          git push -u origin "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+  open-pr-release:
+    runs-on: ubuntu-latest
+    needs: create-release-branch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+      - uses: repo-sync/pull-request@v2
+        with:
+          github_token: ${{ secrets.PAT_TOKEN }}
+          source_branch: develop
+          destination_branch: ${{ needs.create-release-branch.outputs.branch }}
+          pr_title: "PR automatic develop into ${{ needs.create-release-branch.outputs.branch }}"
+          pr_body: "PR automatica criada pelo pipeline."
