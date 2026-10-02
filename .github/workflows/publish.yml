@@ -1,0 +1,23 @@
+name: PUBLISH
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    uses: vyracare/vyracare-infra-pipes-dot-net/.github/workflows/cd-generic-dot-net.yml@main
+    with:
+      branch-name: ${{ github.ref_name }}
+      backend-repo: ${{ github.repository }}
+      project-path: Vyracare.Api.Finance.csproj
+      output-dir: backend-publish
+      api-gateway-name: vyracare-api-finance
+      lambda-function-name: vyracare-api-finance
+      lambda-handler: Vyracare.Api.Finance
+      route-base-path: api/finance
+    secrets: inherit
