@@ -8,6 +8,8 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
 using Vyracare.Api.Finance.Common.Configuration;
+using Vyracare.Api.Finance.Common.Tenancy;
+using Vyracare.Api.Finance.Common.Security;
 using Vyracare.Api.Finance.Features.Finance;
 using Vyracare.Api.Finance.Features.Finance.Shared.Ports;
 using Vyracare.Api.Finance.Infrastructure;
@@ -27,6 +29,9 @@ builder.Services.AddScoped(sp =>
 });
 builder.Services.AddScoped<IFinanceRepository, MongoFinanceRepository>();
 builder.Services.AddScoped<FinanceService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
+builder.Services.AddHostedService<MongoFinanceIndexInitializer>();
 
 var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 if (string.IsNullOrWhiteSpace(jwt.Key)) throw new InvalidOperationException("Jwt:Key nao configurado.");
@@ -57,7 +62,13 @@ builder.Services.AddCors(options => options.AddPolicy("DefaultCors", policy =>
     else policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
 }));
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(FinanceAccess.ReadPolicy, policy =>
+        policy.RequireAuthenticatedUser().RequireAssertion(context => FinanceAccess.CanRead(context.User)));
+    options.AddPolicy(FinanceAccess.ManagePolicy, policy =>
+        policy.RequireAuthenticatedUser().RequireAssertion(context => FinanceAccess.CanManage(context.User)));
+});
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -79,6 +90,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("DefaultCors");
 app.UseAuthentication();
+app.UseMiddleware<TenantContextMiddleware>();
 app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "vyracare-api-finance" })).AllowAnonymous();
 app.MapControllers().RequireAuthorization();

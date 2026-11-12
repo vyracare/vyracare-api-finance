@@ -38,6 +38,30 @@ public sealed class FinanceServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() => service.CreateEntryAsync(request, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task CreateEntryRejectsCategoryThatDoesNotMatchMovementType()
+    {
+        var service = new FinanceService(new FakeFinanceRepository(), Options.Create(new FinanceOptions()));
+        var request = new CreateFinancialEntryRequest(FinancialEntryType.Revenue, FinancialEntryStatus.Confirmed, 10, "Pro-labore", DateTime.UtcNow, FinancialEntryKind.ProLabore);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateEntryAsync(request, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateInvoiceSplitsTotalIntoMonthlyInstallmentsWithoutLosingCents()
+    {
+        var repository = new FakeFinanceRepository();
+        var service = new FinanceService(repository, Options.Create(new FinanceOptions()));
+        var dueAt = new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc);
+
+        var result = await service.CreateInvoiceAsync(new CreateInvoiceRequest("Tratamento", 100, dueAt, "Ana", PaymentMethod.Pix, 3), CancellationToken.None);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal(100, result.Sum(item => item.Amount));
+        Assert.Equal(new[] { 33.33m, 33.33m, 33.34m }, result.Select(item => item.Amount));
+        Assert.Equal(new[] { dueAt, dueAt.AddMonths(1), dueAt.AddMonths(2) }, result.Select(item => item.DueAt));
+        Assert.Single(result.Select(item => item.InstallmentGroupId).Distinct());
+    }
+
     private sealed class FakeFinanceRepository : IFinanceRepository
     {
         private int _revenueCalls;
@@ -48,9 +72,18 @@ public sealed class FinanceServiceTests
         public decimal PreviousExpenses { get; init; }
         public (long Count, decimal Amount) PendingInvoices { get; init; }
         public Task<FinancialEntry> AddEntryAsync(FinancialEntry entry, CancellationToken cancellationToken) => Task.FromResult(entry);
-        public Task<Invoice> AddInvoiceAsync(Invoice invoice, CancellationToken cancellationToken) => Task.FromResult(invoice);
+        public Task<IReadOnlyCollection<FinancialEntry>> ListEntriesAsync(DateTime fromUtc, DateTime toUtc, FinancialEntryType? type, FinancialEntryStatus? status, FinancialEntryKind? kind, string? search, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<FinancialEntry>>([]);
+        public Task<FinancialEntry?> GetEntryAsync(string id, CancellationToken cancellationToken) => Task.FromResult<FinancialEntry?>(null);
+        public Task ReplaceEntryAsync(FinancialEntry entry, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<Invoice> AddInvoiceAsync(Invoice invoice, CancellationToken cancellationToken)
+        {
+            invoice.Id = Guid.NewGuid().ToString("N");
+            return Task.FromResult(invoice);
+        }
+        public Task<IReadOnlyCollection<Invoice>> ListInvoicesAsync(InvoiceStatus? status, string? search, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<Invoice>>([]);
         public Task<Invoice?> GetInvoiceAsync(string id, CancellationToken cancellationToken) => Task.FromResult<Invoice?>(null);
         public Task ReplaceInvoiceAsync(Invoice invoice, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<IReadOnlyCollection<Invoice>> ListUnreadInvoiceNotificationsAsync(DateTime dueThroughUtc, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<Invoice>>([]);
         public Task<decimal> SumConfirmedEntriesAsync(FinancialEntryType type, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken)
         {
             if (type == FinancialEntryType.Revenue) return Task.FromResult(_revenueCalls++ == 0 ? Revenue : PreviousRevenue);
